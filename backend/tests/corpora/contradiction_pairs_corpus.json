@@ -1,0 +1,62 @@
+[
+  {
+    "id": "CP01",
+    "vendor_a": "Northstar Systems",
+    "vendor_b": "Northstar Systems",
+    "statement_a": "No long-term contract commitment is required for our enterprise proposal.",
+    "statement_b": "Customer agrees to an initial committed subscription term of 24 months with automatic renewal.",
+    "topic": "Commitment & Term",
+    "is_contradiction": true,
+    "notes": "Direct intra-vendor commitment contradiction"
+  },
+  {
+    "id": "CP02",
+    "vendor_a": "Apex Procurement",
+    "vendor_b": "Apex Procurement",
+    "statement_a": "Implementation target for full system deployment is 30 calendar days.",
+    "statement_b": "Detailed project launch schedule spans 60 to 75 calendar days from signing.",
+    "topic": "Deployment Timeline",
+    "is_contradiction": true,
+    "notes": "Direct intra-vendor timeline contradiction"
+  },
+  {
+    "id": "CP03",
+    "vendor_a": "Meridian Labs",
+    "vendor_b": "Meridian Labs",
+    "statement_a": "Standard Tier support operates 8am to 5pm EST Monday through Friday.",
+    "statement_b": "Premium Tier support is available 24/7/365 with 1-hour critical response.",
+    "topic": "Support",
+    "is_contradiction": false,
+    "notes": "Suppressed plan tier distinction non-contradiction"
+  },
+  {
+    "id": "CP04",
+    "vendor_a": "Northstar Systems",
+    "vendor_b": "Northstar Systems",
+    "statement_a": "Subscription pricing is fixed at $200,000 for the initial 12-month period.",
+    "statement_b": "Subscription fees upon renewal are subject to a 5% annual price escalation.",
+    "topic": "Pricing & Fees",
+    "is_contradiction": false,
+    "notes": "Suppressed initial vs renewal term pricing non-contradiction"
+  },
+  {
+    "id": "CP05",
+    "vendor_a": "Northstar Systems",
+    "vendor_b": "Apex Procurement",
+    "statement_a": "Northstar guarantees 99.95% annual uptime SLA.",
+    "statement_b": "Apex provides a 99.9% uptime SLA.",
+    "topic": "SLA & Uptime",
+    "is_contradiction": false,
+    "notes": "Cross-vendor pair must be rejected by isolation guard"
+  },
+  {
+    "id": "CP06",
+    "vendor_a": "Meridian Labs",
+    "vendor_b": "Meridian Labs",
+    "statement_a": "All customer data is encrypted in transit using TLS 1.3.",
+    "statement_b": "Data stored at rest is encrypted using AES-256 bit encryption.",
+    "topic": "Security",
+    "is_contradiction": false,
+    "notes": "Complementary security statements, not a contradiction"
+  }
+]

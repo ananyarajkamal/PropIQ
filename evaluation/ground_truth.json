@@ -1,0 +1,114 @@
+{
+  "scenario": "Enterprise Vendor Management Platform Procurement",
+  "disclaimer": "These fictional vendor proposals and ground truth data are created solely for controlled evaluation of PropIQ.",
+  "configured_requirements": {
+    "budget_ceiling": 120000.0,
+    "budget_currency": "USD",
+    "budget_priority": "MEDIUM",
+    "timeline_value": 30.0,
+    "timeline_unit": "days",
+    "timeline_priority": "HIGH",
+    "minimum_sla": 99.9,
+    "sla_priority": "MUST_HAVE",
+    "payment_terms": "Net 30",
+    "payment_priority": "MEDIUM",
+    "certifications": ["SOC 2 Type II", "ISO 27001"],
+    "certifications_priority": "MUST_HAVE",
+    "warranty_value": 12.0,
+    "warranty_unit": "months",
+    "warranty_priority": "MEDIUM",
+    "renewal_preference": "No automatic renewal",
+    "renewal_priority": "MEDIUM",
+    "termination_requirement": "Termination for convenience",
+    "termination_priority": "MEDIUM",
+    "support_requirement": "24/7 critical support",
+    "support_priority": "HIGH",
+    "liability_requirement": "12 months fees cap",
+    "liability_priority": "HIGH"
+  },
+  "expected_vendor_evaluations": {
+    "Northstar Systems": {
+      "expected_rank": 1,
+      "expected_rank_status": "LEADING",
+      "expected_recommendation_state": "RECOMMENDED_WITH_CONDITIONS",
+      "expected_comparison_statuses": {
+        "REQ_PRICING": "MEETS",
+        "REQ_TIMELINE": "MEETS",
+        "REQ_SLA": "MEETS",
+        "REQ_PAYMENT": "MEETS",
+        "REQ_CERTIFICATIONS": "MEETS",
+        "REQ_WARRANTY": "MEETS",
+        "REQ_RENEWAL": "FAILS",
+        "REQ_TERMINATION": "MEETS",
+        "REQ_SUPPORT": "MEETS",
+        "REQ_LIABILITY": "MEETS"
+      },
+      "expected_risks": ["AUTO_RENEWAL"],
+      "expected_contradictions": [],
+      "expected_missing_gaps": []
+    },
+    "Meridian Labs": {
+      "expected_rank": 2,
+      "expected_rank_status": "COMPETITIVE",
+      "expected_recommendation_state": "RECOMMENDED_WITH_CONDITIONS",
+      "expected_comparison_statuses": {
+        "REQ_PRICING": "MEETS",
+        "REQ_TIMELINE": "PARTIAL",
+        "REQ_SLA": "MEETS",
+        "REQ_PAYMENT": "PARTIAL",
+        "REQ_CERTIFICATIONS": "PARTIAL",
+        "REQ_WARRANTY": "MEETS",
+        "REQ_RENEWAL": "MEETS",
+        "REQ_TERMINATION": "MEETS",
+        "REQ_SUPPORT": "MEETS",
+        "REQ_LIABILITY": "MEETS"
+      },
+      "expected_risks": [],
+      "expected_contradictions": [],
+      "expected_missing_gaps": ["ISO 27001 Status Pending"]
+    },
+    "Vertex Cloud Services": {
+      "expected_rank": 3,
+      "expected_rank_status": "BEHIND",
+      "expected_recommendation_state": "FURTHER_REVIEW_REQUIRED",
+      "expected_comparison_statuses": {
+        "REQ_PRICING": "MEETS",
+        "REQ_TIMELINE": "MEETS",
+        "REQ_SLA": "MISSING",
+        "REQ_PAYMENT": "MEETS",
+        "REQ_CERTIFICATIONS": "MISSING",
+        "REQ_WARRANTY": "MISSING",
+        "REQ_RENEWAL": "UNCLEAR",
+        "REQ_TERMINATION": "MISSING",
+        "REQ_SUPPORT": "PARTIAL",
+        "REQ_LIABILITY": "MISSING"
+      },
+      "expected_risks": [],
+      "expected_contradictions": [],
+      "expected_missing_gaps": ["Missing SLA", "Missing Certifications", "Missing Liability Cap", "Missing Termination Terms"]
+    },
+    "Apex Procurement Technologies": {
+      "expected_rank": 4,
+      "expected_rank_status": "BEHIND",
+      "expected_recommendation_state": "FURTHER_REVIEW_REQUIRED",
+      "expected_comparison_statuses": {
+        "REQ_PRICING": "MEETS",
+        "REQ_TIMELINE": "CONFLICTING",
+        "REQ_SLA": "MEETS",
+        "REQ_PAYMENT": "MEETS",
+        "REQ_CERTIFICATIONS": "PARTIAL",
+        "REQ_WARRANTY": "MISSING",
+        "REQ_RENEWAL": "FAILS",
+        "REQ_TERMINATION": "MISSING",
+        "REQ_SUPPORT": "PARTIAL",
+        "REQ_LIABILITY": "PARTIAL"
+      },
+      "expected_risks": ["AUTO_RENEWAL", "LIABILITY_CAP"],
+      "expected_contradictions": [
+        "No commitment vs 24-month auto-renewal",
+        "30-day implementation vs 60 to 75 days"
+      ],
+      "expected_missing_gaps": ["Implementation timeline conflict", "Renewal term conflict"]
+    }
+  }
+}

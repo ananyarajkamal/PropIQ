@@ -71,7 +71,9 @@ class Config:
         "state_scores": {
             "MEETS": 1.0,
             "PARTIAL": 0.6,
+            "NEEDS_REVIEW": 0.4,
             "UNCLEAR": 0.3,
+            "UNVERIFIED": 0.25,
             "FAILS": 0.0,
             "MISSING": 0.0,
             "CONFLICTING": 0.0,

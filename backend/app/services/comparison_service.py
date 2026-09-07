@@ -6,6 +6,7 @@ MISSING, UNCLEAR, CONFLICTING with deterministic natural-language explanations.
 """
 
 import logging
+import re
 from typing import Dict, List, Optional, Any
 from app.models import (
     ProcurementRequirements,
@@ -50,7 +51,7 @@ class ComparisonService:
 
         # Vendor factual status counters
         summary_counts: Dict[str, Dict[str, int]] = {
-            vname: {"MEETS": 0, "PARTIAL": 0, "FAILS": 0, "MISSING": 0, "UNCLEAR": 0, "CONFLICTING": 0}
+            vname: {"MEETS": 0, "PARTIAL": 0, "FAILS": 0, "MISSING": 0, "UNCLEAR": 0, "CONFLICTING": 0, "NEEDS_REVIEW": 0, "UNVERIFIED": 0}
             for vname in vendors
         }
 
@@ -158,6 +159,9 @@ class ComparisonService:
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res("REQ_PRICING", "Pricing", fs.vendor_name, cat_res)
                 continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res("REQ_PRICING", "Pricing", fs.vendor_name, cat_res)
+                continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res("REQ_PRICING", "Pricing", fs.vendor_name, cat_res)
                 continue
@@ -243,6 +247,9 @@ class ComparisonService:
             cat_res = self._get_category_result(fs, "Delivery / Implementation")
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res("REQ_TIMELINE", "Delivery / Implementation", fs.vendor_name, cat_res)
+                continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res("REQ_TIMELINE", "Delivery / Implementation", fs.vendor_name, cat_res)
                 continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res("REQ_TIMELINE", "Delivery / Implementation", fs.vendor_name, cat_res)
@@ -341,6 +348,9 @@ class ComparisonService:
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res("REQ_SLA", "SLA / Uptime", fs.vendor_name, cat_res)
                 continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res("REQ_SLA", "SLA / Uptime", fs.vendor_name, cat_res)
+                continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res("REQ_SLA", "SLA / Uptime", fs.vendor_name, cat_res)
                 continue
@@ -405,6 +415,9 @@ class ComparisonService:
             cat_res = self._get_category_result(fs, "Payment Terms")
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res("REQ_PAYMENT", "Payment Terms", fs.vendor_name, cat_res)
+                continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res("REQ_PAYMENT", "Payment Terms", fs.vendor_name, cat_res)
                 continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res("REQ_PAYMENT", "Payment Terms", fs.vendor_name, cat_res)
@@ -478,6 +491,9 @@ class ComparisonService:
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res("REQ_CERTS", "Certifications", fs.vendor_name, cat_res)
                 continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res("REQ_CERTS", "Certifications", fs.vendor_name, cat_res)
+                continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res("REQ_CERTS", "Certifications", fs.vendor_name, cat_res)
                 continue
@@ -542,6 +558,9 @@ class ComparisonService:
             cat_res = self._get_category_result(fs, "Warranty")
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res("REQ_WARRANTY", "Warranty", fs.vendor_name, cat_res)
+                continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res("REQ_WARRANTY", "Warranty", fs.vendor_name, cat_res)
                 continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res("REQ_WARRANTY", "Warranty", fs.vendor_name, cat_res)
@@ -612,6 +631,9 @@ class ComparisonService:
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res("REQ_RENEWAL", "Renewal", fs.vendor_name, cat_res)
                 continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res("REQ_RENEWAL", "Renewal", fs.vendor_name, cat_res)
+                continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res("REQ_RENEWAL", "Renewal", fs.vendor_name, cat_res)
                 continue
@@ -621,6 +643,8 @@ class ComparisonService:
 
             norm = self.normalizer.normalize_renewal(cat_res.raw_value)
             ren_type = norm.normalized_value.get("renewal_type") if (norm.normalized_value and isinstance(norm.normalized_value, dict)) else "unclear"
+            pref_lower = pref.lower()
+            auto_req = "auto" in pref_lower and not no_auto
 
             if no_auto:
                 if ren_type == "manual":
@@ -630,11 +654,21 @@ class ComparisonService:
                     st = "FAILS"
                     exp = "Vendor specifies automatic annual renewal, violating no auto-renewal preference."
                 else:
-                    st = "UNCLEAR"
-                    exp = "Vendor renewal terms are subject to agreement."
+                    st = "NEEDS_REVIEW"
+                    exp = f"Vendor renewal terms ('{cat_res.raw_value}') cannot establish whether auto-renewal is avoided; needs review."
+            elif auto_req:
+                if ren_type == "automatic":
+                    st = "MEETS"
+                    exp = "Vendor specifies automatic renewal, matching auto-renewal preference."
+                elif ren_type == "manual":
+                    st = "FAILS"
+                    exp = "Vendor specifies manual renewal, failing automatic renewal preference."
+                else:
+                    st = "NEEDS_REVIEW"
+                    exp = f"Vendor renewal clause ('{cat_res.raw_value}') cannot establish automatic renewal terms; needs review."
             else:
-                st = "MEETS"
-                exp = f"Vendor renewal clause: {cat_res.raw_value}"
+                st = "NEEDS_REVIEW"
+                exp = f"Vendor renewal terms require review against preference '{pref}': {cat_res.raw_value}"
 
             evals[fs.vendor_name] = RequirementEvaluationResult(
                 requirement_id="REQ_RENEWAL",
@@ -669,6 +703,9 @@ class ComparisonService:
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res("REQ_TERMINATION", "Termination / Exit", fs.vendor_name, cat_res)
                 continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res("REQ_TERMINATION", "Termination / Exit", fs.vendor_name, cat_res)
+                continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res("REQ_TERMINATION", "Termination / Exit", fs.vendor_name, cat_res)
                 continue
@@ -677,18 +714,54 @@ class ComparisonService:
                 continue
 
             norm = self.normalizer.normalize_termination(cat_res.raw_value)
-            conv_perm = norm.normalized_value.get("termination_for_convenience", False) if (norm.normalized_value and isinstance(norm.normalized_value, dict)) else False
+            v_text = (cat_res.raw_value or cat_res.summary or "").lower()
+            req_lower = req_text.lower()
+            anytime_req = any(kw in req_lower for kw in ["any time", "anytime", "convenience", "without cause", "any reason"])
+            has_lockin = any(kw in v_text for kw in ["only after", "minimum commitment", "minimum term", "lock-in", "lock in", "initial term", "non-cancellable", "cannot be cancelled", "not permitted prior to", "two years", "2 years", "1 year"])
+            cause_only = any(kw in v_text for kw in ["cause only", "material breach only", "only for cause", "only upon material breach", "only in the event of breach"])
 
-            if for_convenience_req:
-                if conv_perm:
-                    st = "MEETS"
-                    exp = "Vendor permits termination for convenience."
-                else:
+            conv_perm = norm.normalized_value.get("termination_for_convenience", False) if (norm.normalized_value and isinstance(norm.normalized_value, dict)) else False
+            if ("convenience" in v_text or "without cause" in v_text or "any time" in v_text or "anytime" in v_text) and not has_lockin and not cause_only:
+                conv_perm = True
+
+            if anytime_req:
+                if has_lockin or cause_only:
                     st = "FAILS"
-                    exp = "Vendor permits termination for material breach only, failing convenience requirement."
+                    exp = f"Vendor clause restricts termination ('{cat_res.raw_value}'), failing requirement for cancellation at any time."
+                elif conv_perm:
+                    st = "MEETS"
+                    exp = "Vendor permits termination for convenience / cancellation at any time."
+                else:
+                    st = "NEEDS_REVIEW"
+                    exp = f"Vendor termination terms require review: clause ('{cat_res.raw_value}') cannot establish whether cancellation at any time is permitted."
             else:
-                st = "MEETS"
-                exp = f"Vendor termination clause: {cat_res.raw_value}"
+                notice_match = re.search(r"(\d+|\b\w+\b)\s*day", req_lower)
+                if notice_match:
+                    from app.services.normalization_service import parse_numeric_word_or_float
+                    req_days = parse_numeric_word_or_float(notice_match.group(1))
+                    v_days = norm.normalized_value.get("notice_period_days") if (norm.normalized_value and isinstance(norm.normalized_value, dict)) else None
+                    if req_days is not None and v_days is not None:
+                        if v_days <= req_days:
+                            st = "MEETS"
+                            exp = f"Vendor notice period of {v_days} days satisfies required <= {int(req_days)} days."
+                        else:
+                            st = "FAILS"
+                            exp = f"Vendor notice period of {v_days} days exceeds required <= {int(req_days)} days."
+                    else:
+                        st = "NEEDS_REVIEW"
+                        exp = f"Vendor termination clause requires review against notice requirement '{req_text}': {cat_res.raw_value}"
+                elif any(neg in v_text for neg in ["not allowed", "prohibited", "penalty applies", "cannot terminate", "no right"]):
+                    st = "FAILS"
+                    exp = f"Vendor terms conflict with termination requirement '{req_text}': {cat_res.raw_value}"
+                else:
+                    req_keywords = [w for w in re.findall(r"\b\w{4,}\b", req_lower) if w not in {"requirement", "vendor", "buyer", "should", "must", "shall", "required", "termination", "clause"}]
+                    matches = [w for w in req_keywords if w in v_text]
+                    if req_keywords and len(matches) >= len(req_keywords) * 0.75:
+                        st = "MEETS"
+                        exp = f"Vendor termination clause satisfies requirement: {cat_res.raw_value}"
+                    else:
+                        st = "NEEDS_REVIEW"
+                        exp = f"Vendor termination clause requires review: cannot establish whether '{req_text}' is met by clause '{cat_res.raw_value}'."
 
             evals[fs.vendor_name] = RequirementEvaluationResult(
                 requirement_id="REQ_TERMINATION",
@@ -722,6 +795,9 @@ class ComparisonService:
             cat_res = self._get_category_result(fs, "Support")
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res("REQ_SUPPORT", "Support", fs.vendor_name, cat_res)
+                continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res("REQ_SUPPORT", "Support", fs.vendor_name, cat_res)
                 continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res("REQ_SUPPORT", "Support", fs.vendor_name, cat_res)
@@ -762,8 +838,17 @@ class ComparisonService:
                     st = "UNCLEAR"
                     exp = f"Support detail: {cat_res.raw_value}"
             else:
-                st = "MEETS"
-                exp = f"Vendor support coverage: {cat_res.raw_value}"
+                v_text = (cat_res.raw_value or "").lower()
+                req_lower = req_text.lower()
+                if any(neg in v_text for neg in ["not supported", "no support", "excluded", "extra charge"]):
+                    st = "FAILS"
+                    exp = f"Vendor terms conflict with support requirement '{req_text}': {cat_res.raw_value}"
+                elif any(kw in v_text for kw in ["support", "included", "help desk", "tier", "portal"]):
+                    st = "MEETS"
+                    exp = f"Vendor support coverage: {cat_res.raw_value}"
+                else:
+                    st = "NEEDS_REVIEW"
+                    exp = f"Vendor support terms require review against '{req_text}': {cat_res.raw_value}"
 
             evals[fs.vendor_name] = RequirementEvaluationResult(
                 requirement_id="REQ_SUPPORT",
@@ -791,11 +876,15 @@ class ComparisonService:
         evals: Dict[str, RequirementEvaluationResult] = {}
         cat_name = f"Custom: {custom_text}"
         req_id = f"REQ_CUSTOM_{req_idx}"
+        custom_lower = custom_text.lower()
 
         for fs in fact_sheets:
             cat_res = self._get_category_result(fs, cat_name)
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res(req_id, cat_name, fs.vendor_name, cat_res)
+                continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res(req_id, cat_name, fs.vendor_name, cat_res)
                 continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res(req_id, cat_name, fs.vendor_name, cat_res)
@@ -804,19 +893,48 @@ class ComparisonService:
                 evals[fs.vendor_name] = self._make_conflicting_res(req_id, cat_name, fs.vendor_name, cat_res)
                 continue
 
-            # Evaluate custom requirement based on extracted evidence
             val_text = cat_res.raw_value or cat_res.summary
+            if not val_text:
+                evals[fs.vendor_name] = self._make_missing_res(req_id, cat_name, fs.vendor_name, cat_res)
+                continue
+
+            v_lower = val_text.lower()
+            if any(neg in v_lower for neg in ["not supported", "unsupported", "does not provide", "not offered", "excluded", "cannot accommodate", "unavailable"]):
+                st = "FAILS"
+                exp = f"Vendor proposal explicitly states requirement is unsupported: {val_text}"
+            else:
+                custom_words = set(re.findall(r"\b[a-zA-Z0-9]{3,}\b", custom_lower)) - {"vendor", "buyer", "should", "must", "shall", "required", "system", "with", "from", "that", "this"}
+                
+                # Check domain acronym synonyms (e.g. sso <-> saml, oauth, single sign-on)
+                domain_matches = False
+                if ("sso" in custom_lower or "single sign-on" in custom_lower) and any(kw in v_lower for kw in ["sso", "saml", "oauth", "single sign-on", "okta", "azure ad"]):
+                    domain_matches = True
+                elif ("mfa" in custom_lower or "2fa" in custom_lower or "multi-factor" in custom_lower) and any(kw in v_lower for kw in ["mfa", "2fa", "multi-factor", "two-factor", "authenticator"]):
+                    domain_matches = True
+                elif ("api" in custom_lower or "webhook" in custom_lower or "sdk" in custom_lower) and any(kw in v_lower for kw in ["api", "rest", "graphql", "webhook", "sdk", "endpoint"]):
+                    domain_matches = True
+
+                matched_words = {w for w in custom_words if w in v_lower}
+                has_affirmation = any(kw in v_lower for kw in ["supported", "available", "included", "complies", "integrates", "enabled", "provided", "feature", "out of the box"])
+
+                if (domain_matches and (has_affirmation or "sso" in v_lower)) or (custom_words and len(matched_words) >= max(1, int(len(custom_words) * 0.5)) and has_affirmation):
+                    st = "MEETS"
+                    exp = cat_res.summary or f"Vendor satisfies custom requirement: {val_text}"
+                else:
+                    st = "NEEDS_REVIEW"
+                    exp = f"Vendor clause found but requires review to establish if custom requirement is satisfied: {val_text}"
+
             evals[fs.vendor_name] = RequirementEvaluationResult(
                 requirement_id=req_id,
                 category=cat_name,
                 vendor_name=fs.vendor_name,
-                status="MEETS" if val_text else "UNCLEAR",
+                status=st,
                 raw_vendor_value=cat_res.raw_value,
                 normalized_vendor_value=val_text,
-                explanation=cat_res.summary or f"Vendor addresses requirement: {val_text}",
+                explanation=exp,
                 evidence_citations=cat_res.evidence_citations,
-                comparison_rule="vendor_custom_evidence_found",
-                normalization_status="NORMALIZED" if val_text else "UNSUPPORTED",
+                comparison_rule="vendor_custom_evidence_evaluated",
+                normalization_status="NORMALIZED" if st == "MEETS" else "AMBIGUOUS" if st == "NEEDS_REVIEW" else "UNSUPPORTED",
             )
 
         return ComparisonMatrixRow(
@@ -830,11 +948,15 @@ class ComparisonService:
     def _evaluate_textual_requirement(self, req_id: str, category: str, req_text: str, fact_sheets: List[VendorFactSheet]) -> ComparisonMatrixRow:
         evals: Dict[str, RequirementEvaluationResult] = {}
         label = f"{category}: {req_text}"
+        req_lower = req_text.lower()
 
         for fs in fact_sheets:
             cat_res = self._get_category_result(fs, category)
             if not cat_res or cat_res.status == "NOT_FOUND":
                 evals[fs.vendor_name] = self._make_missing_res(req_id, category, fs.vendor_name, cat_res)
+                continue
+            if cat_res.status == "UNVERIFIED" or not getattr(cat_res, "is_verified", True):
+                evals[fs.vendor_name] = self._make_unverified_res(req_id, category, fs.vendor_name, cat_res)
                 continue
             if cat_res.status == "UNCLEAR":
                 evals[fs.vendor_name] = self._make_unclear_res(req_id, category, fs.vendor_name, cat_res)
@@ -844,17 +966,48 @@ class ComparisonService:
                 continue
 
             val_text = cat_res.raw_value or cat_res.summary
+            if not val_text:
+                evals[fs.vendor_name] = self._make_missing_res(req_id, category, fs.vendor_name, cat_res)
+                continue
+
+            v_lower = val_text.lower()
+
+            # Compare what the clause actually promises against what the buyer needs
+            uncapped_req = any(kw in req_lower for kw in ["uncapped", "no cap", "unlimited"])
+            capped_vendor = any(kw in v_lower for kw in ["capped at", "limited to", "aggregate liability shall not exceed", "maximum liability"])
+            mutual_req = "mutual" in req_lower
+            unilateral_vendor = any(kw in v_lower for kw in ["solely", "vendor only", "customer indemnifies", "unilateral"])
+
+            if uncapped_req and capped_vendor:
+                st = "FAILS"
+                exp = f"Vendor caps liability ('{val_text}'), failing requirement for uncapped liability."
+            elif mutual_req and unilateral_vendor:
+                st = "FAILS"
+                exp = f"Vendor terms specify unilateral liability ('{val_text}'), failing requirement for mutual liability."
+            elif any(kw in v_lower for kw in ["not supported", "excluded", "does not meet", "declined", "unacceptable"]):
+                st = "FAILS"
+                exp = f"Vendor clause conflicts with requirement '{req_text}': {val_text}"
+            else:
+                req_keywords = [w for w in re.findall(r"\b\w{4,}\b", req_lower) if w not in {"requirement", "vendor", "buyer", "should", "must", "shall", "required"}]
+                matches = [w for w in req_keywords if w in v_lower]
+                if req_keywords and len(matches) >= len(req_keywords) * 0.75:
+                    st = "MEETS"
+                    exp = f"Vendor terms satisfy requirement: {val_text}"
+                else:
+                    st = "NEEDS_REVIEW"
+                    exp = f"Clause found but requires review to confirm compliance with '{req_text}': {val_text}"
+
             evals[fs.vendor_name] = RequirementEvaluationResult(
                 requirement_id=req_id,
                 category=category,
                 vendor_name=fs.vendor_name,
-                status="MEETS" if val_text else "UNCLEAR",
+                status=st,
                 raw_vendor_value=cat_res.raw_value,
                 normalized_vendor_value=val_text,
-                explanation=cat_res.summary or f"Vendor term: {val_text}",
+                explanation=exp,
                 evidence_citations=cat_res.evidence_citations,
-                comparison_rule="vendor_textual_evidence_found",
-                normalization_status="NORMALIZED" if val_text else "UNSUPPORTED",
+                comparison_rule="vendor_textual_evidence_evaluated",
+                normalization_status="NORMALIZED" if st == "MEETS" else "AMBIGUOUS" if st == "NEEDS_REVIEW" else "UNSUPPORTED",
             )
 
         return ComparisonMatrixRow(
@@ -908,4 +1061,20 @@ class ComparisonService:
             evidence_citations=cat_res.evidence_citations,
             comparison_rule="phase3_status == CONFLICTING",
             normalization_status="CONFLICTING",
+        )
+
+    def _make_unverified_res(self, req_id: str, category: str, vendor_name: str, cat_res: Optional[CategoryExtractionResult]) -> RequirementEvaluationResult:
+        cits = cat_res.evidence_citations if cat_res else []
+        return RequirementEvaluationResult(
+            requirement_id=req_id,
+            category=category,
+            vendor_name=vendor_name,
+            status="UNVERIFIED",
+            is_verified=False,
+            raw_vendor_value=cat_res.raw_value if cat_res else None,
+            normalized_vendor_value=None,
+            explanation=cat_res.summary if (cat_res and cat_res.summary) else "Extracted claim lacks verifying evidence in proposal text.",
+            evidence_citations=cits,
+            comparison_rule="phase3_status == UNVERIFIED",
+            normalization_status="UNSUPPORTED",
         )

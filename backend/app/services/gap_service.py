@@ -199,6 +199,51 @@ class GapService:
                         )
                     )
 
+                elif status == "NEEDS_REVIEW":
+                    reason = ClarificationReason.UNCLEAR_INFORMATION
+                    if eval_res.requirement_id == "REQ_PRICING":
+                        reason = ClarificationReason.PRICING_AMBIGUITY
+                    elif eval_res.requirement_id == "REQ_SLA":
+                        reason = ClarificationReason.SLA_CLARIFICATION
+                    elif eval_res.requirement_id == "REQ_SUPPORT":
+                        reason = ClarificationReason.SUPPORT_CLARIFICATION
+
+                    gap_id = self._generate_canonical_gap_id(session_id, vname, reason, eval_res.requirement_id)
+                    e_ids = [c.chunk_id for c in eval_res.evidence_citations if c.chunk_id]
+                    gaps.append(
+                        GapModel(
+                            gap_id=gap_id,
+                            vendor_name=vname,
+                            reason=reason,
+                            priority=QuestionPriority.HIGH if eval_res.requirement_id in {"REQ_PRICING", "REQ_LIABILITY"} else QuestionPriority.MEDIUM,
+                            source_status="NEEDS_REVIEW",
+                            requirement_id=eval_res.requirement_id,
+                            requirement_label=row.requirement_label,
+                            raw_values=eval_res.raw_vendor_value,
+                            evidence_ids=e_ids,
+                            evidence_citations=eval_res.evidence_citations,
+                            gap_summary=eval_res.explanation,
+                        )
+                    )
+
+                elif status == "UNVERIFIED":
+                    gap_id = self._generate_canonical_gap_id(session_id, vname, ClarificationReason.MISSING_REQUIREMENT, eval_res.requirement_id)
+                    gaps.append(
+                        GapModel(
+                            gap_id=gap_id,
+                            vendor_name=vname,
+                            reason=ClarificationReason.MISSING_REQUIREMENT,
+                            priority=QuestionPriority.HIGH,
+                            source_status="UNVERIFIED",
+                            requirement_id=eval_res.requirement_id,
+                            requirement_label=row.requirement_label,
+                            raw_values=eval_res.raw_vendor_value,
+                            evidence_ids=[],
+                            evidence_citations=[],
+                            gap_summary=eval_res.explanation or f"Requirement '{row.requirement_label}' lacks verifiable evidence in proposal.",
+                        )
+                    )
+
         return gaps
 
     def _detect_fact_sheet_gaps(

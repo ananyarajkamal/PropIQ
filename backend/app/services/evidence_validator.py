@@ -83,6 +83,78 @@ class EvidenceValidator:
 
         return True
 
+    # Controlled semantic topical keywords per category to prevent cross-context citation collision
+    CATEGORY_TOPICAL_MARKERS: Dict[str, List[str]] = {
+        "Pricing": ["price", "pricing", "fee", "cost", "annual", "subscription", "usd", "$", "eur", "gbp", "inr", "total", "license", "licensing", "rate", "bill"],
+        "Payment Terms": ["net", "payment", "invoice", "invoicing", "payable", "due", "billing", "upfront", "deposit", "receipt", "days after invoice", "upon receipt"],
+        "Delivery / Implementation": ["implementation", "deployment", "deploy", "timeline", "schedule", "rollout", "onboarding", "go-live", "turnaround", "delivery", "setup", "weeks", "days", "months"],
+        "SLA / Uptime": ["sla", "uptime", "availability", "service level", "%", "percent", "downtime", "credit", "maintenance", "service credits"],
+        "Warranty": ["warranty", "guarantee", "defect", "remedy", "repair", "replacement", "cure", "warranties"],
+        "Certifications": ["soc", "iso", "pci", "hipaa", "gdpr", "certification", "certified", "compliance", "audit", "security standard", "hitrust", "fedramp"],
+        "Liability": ["liability", "indemnity", "indemnification", "cap", "capped", "damages", "consequential", "aggregate", "exceed", "limitation of liability"],
+        "Renewal": ["renewal", "renew", "auto-renew", "automatic renewal", "extension", "successive term", "expire", "expiration"],
+        "Termination / Exit": ["termination", "terminate", "cancel", "cancellation", "exit", "convenience", "breach", "notice", "cure period", "material breach", "early termination"],
+        "Support": ["support", "helpdesk", "technical support", "24/7", "24x7", "business hours", "ticket", "response time", "severity", "incident", "sla response"],
+    }
+
+    @classmethod
+    def validate_claim_topical_support(
+        cls,
+        category: str,
+        raw_value: Optional[str],
+        excerpt_text: str,
+    ) -> bool:
+        """Validate that cited evidence excerpt semantically supports the specific category claim.
+        
+        Guarantees that a passage mentioning a number or term in an unrelated context
+        (e.g. implementation 30 days) is not accepted as evidence for another category
+        (e.g. payment terms Net 30).
+        """
+        if not excerpt_text or not excerpt_text.strip():
+            return False
+
+        norm_excerpt = excerpt_text.lower()
+
+        # 1. Check category topical markers
+        markers = cls.CATEGORY_TOPICAL_MARKERS.get(category)
+        if markers is not None:
+            has_marker = any(m in norm_excerpt for m in markers)
+            if not has_marker:
+                logger.warning(
+                    "evidence_validator.topical_mismatch: Excerpt for category '%s' lacks required topical markers: '%s'",
+                    category, excerpt_text[:80]
+                )
+                return False
+        elif category.startswith("Custom:"):
+            # Custom requirement: extract substantive terms from category name
+            req_words = [
+                w.lower() for w in re.findall(r"\w+", category.replace("Custom:", ""))
+                if len(w) > 3 and w.lower() not in {"must", "have", "should", "with", "from", "that", "this"}
+            ]
+            if req_words and not any(w in norm_excerpt for w in req_words):
+                logger.warning(
+                    "evidence_validator.custom_topical_mismatch: Excerpt for '%s' lacks relevant requirement terms: '%s'",
+                    category, excerpt_text[:80]
+                )
+                return False
+
+        # 2. Check that if raw_value has numbers/key tokens, they are supported by excerpt
+        if raw_value:
+            norm_val = raw_value.lower().strip()
+            # Extract numbers
+            val_nums = re.findall(r"\d+(?:\.\d+)?", norm_val)
+            if val_nums:
+                excerpt_nums = re.findall(r"\d+(?:\.\d+)?", norm_excerpt)
+                # At least one major number from raw_value should be present in excerpt
+                if not any(num in excerpt_nums for num in val_nums):
+                    logger.warning(
+                        "evidence_validator.value_not_supported: Raw value '%s' numbers not found in excerpt for '%s'",
+                        raw_value, category
+                    )
+                    return False
+
+        return True
+
     @staticmethod
     def audit_comparison_row(
         row: ComparisonMatrixRow,

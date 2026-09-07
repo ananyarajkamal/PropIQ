@@ -29,6 +29,7 @@ from app.services.groq_service import (
 )
 
 from app.services.normalization_service import NormalizationService, replace_word_numbers_in_text
+from app.services.evidence_validator import EvidenceValidator
 
 logger = logging.getLogger("propiq_backend")
 
@@ -228,90 +229,71 @@ class ExtractionService:
                 raw_status = groq_cat.get("status", "NOT_FOUND")
                 extracted_raw = groq_cat.get("raw_value")
                 valid_citations: List[EvidenceCitationModel] = []
+                is_verified = False
 
                 if raw_status in {"FOUND", "UNCLEAR", "CONFLICTING"}:
+                    # 1. Validate explicitly cited evidence IDs
                     for cited_eid in groq_cat.get("cited_evidence_ids", []):
                         if cited_eid in evidence_map:
                             item = evidence_map[cited_eid]
-                            valid_citations.append(
-                                EvidenceCitationModel(
-                                    evidence_id=cited_eid,
-                                    vendor_name=item.vendor_name,
-                                    source_filename=item.source_filename,
-                                    start_page=item.start_page,
-                                    end_page=item.end_page,
-                                    chunk_id=item.chunk_id,
-                                    excerpt_text=item.text,
+                            # Verify topical support for this specific category claim
+                            if EvidenceValidator.validate_claim_topical_support(cat_name, extracted_raw, item.text):
+                                valid_citations.append(
+                                    EvidenceCitationModel(
+                                        evidence_id=cited_eid,
+                                        vendor_name=item.vendor_name,
+                                        source_filename=item.source_filename,
+                                        start_page=item.start_page,
+                                        end_page=item.end_page,
+                                        chunk_id=item.chunk_id,
+                                        excerpt_text=item.text,
+                                    )
                                 )
-                            )
 
-                    # Citation fallback: If fact was found but cited ID omitted/mismatched, find exact chunk containing extracted value
-                    if not valid_citations and raw_status == "FOUND":
-                        fallback_eid = None
-                        nums = re.findall(r"\d+\.\d+|\d+", extracted_raw or "")
-                        if nums and evidence_map:
-                            for eid, item in evidence_map.items():
-                                if any(num in item.text for num in nums):
-                                    fallback_eid = eid
-                                    break
-                        if not fallback_eid:
-                            fallback_eid = cat_first_eid_map.get(cat_name) or (list(evidence_map.keys())[0] if evidence_map else None)
-
-                        if fallback_eid and fallback_eid in evidence_map:
-                            item = evidence_map[fallback_eid]
-                            valid_citations.append(
-                                EvidenceCitationModel(
-                                    evidence_id=fallback_eid,
-                                    vendor_name=item.vendor_name,
-                                    source_filename=item.source_filename,
-                                    start_page=item.start_page,
-                                    end_page=item.end_page,
-                                    chunk_id=item.chunk_id,
-                                    excerpt_text=item.text,
+                    # 2. Strict category-scoped fallback: search ONLY in chunks retrieved for THIS category
+                    if not valid_citations and raw_status == "FOUND" and extracted_raw:
+                        cat_chunks = cat_evidence_map.get(cat_name, [])
+                        for c_item in cat_chunks:
+                            eid = c_item.get("evidence_id")
+                            item = evidence_map.get(eid)
+                            if item and EvidenceValidator.validate_claim_topical_support(cat_name, extracted_raw, item.text):
+                                valid_citations.append(
+                                    EvidenceCitationModel(
+                                        evidence_id=eid,
+                                        vendor_name=item.vendor_name,
+                                        source_filename=item.source_filename,
+                                        start_page=item.start_page,
+                                        end_page=item.end_page,
+                                        chunk_id=item.chunk_id,
+                                        excerpt_text=item.text,
+                                    )
                                 )
+                                break
+
+                    # 3. If fact was claimed FOUND but no grounded citation proves the specific claim, mark UNVERIFIED
+                    if raw_status == "FOUND":
+                        if not valid_citations:
+                            logger.warning(
+                                "extraction.unverified_fact: Fact '%s' for category '%s' has no supporting evidence. Marking UNVERIFIED.",
+                                extracted_raw, cat_name
                             )
+                            raw_status = "UNVERIFIED"
+                            is_verified = False
+                            extracted_raw = None
                         else:
-                            if not evidence_map:
-                                raw_status = "NOT_FOUND"
-
-                    # Grounding check: Verify extracted raw_value is grounded in cited evidence or re-link to matching chunk
-                    if raw_status == "FOUND" and extracted_raw and valid_citations:
-                        nums = re.findall(r"\d+\.\d+|\d+", extracted_raw)
-                        if nums:
-                            citation_blob = " ".join(c.excerpt_text for c in valid_citations).lower()
-                            if not any(num in citation_blob for num in nums):
-                                # Re-link to chunk in evidence_map that actually contains the numbers
-                                grounded_eid = None
-                                for eid, item in evidence_map.items():
-                                    if any(num in item.text for num in nums):
-                                        grounded_eid = eid
-                                        break
-                                if grounded_eid and grounded_eid in evidence_map:
-                                    item = evidence_map[grounded_eid]
-                                    valid_citations = [
-                                        EvidenceCitationModel(
-                                            evidence_id=grounded_eid,
-                                            vendor_name=item.vendor_name,
-                                            source_filename=item.source_filename,
-                                            start_page=item.start_page,
-                                            end_page=item.end_page,
-                                            chunk_id=item.chunk_id,
-                                            excerpt_text=item.text,
-                                        )
-                                    ]
-                                else:
-                                    logger.warning("extraction.ungrounded_value_rejected: '%s' not found in cited evidence for '%s'", extracted_raw, cat_name)
-                                    raw_status = "UNCLEAR"
-                                    extracted_raw = None
+                            is_verified = True
+                    elif raw_status in {"UNCLEAR", "CONFLICTING"}:
+                        is_verified = len(valid_citations) > 0
 
                 cat_results.append(
                     CategoryExtractionResult(
                         category=cat_name,
                         status=raw_status,
                         raw_value=extracted_raw if raw_status == "FOUND" else None,
-                        summary=groq_cat.get("summary") or "Evidence processed.",
+                        summary=groq_cat.get("summary") or ("Unverified in proposal evidence." if raw_status == "UNVERIFIED" else "Evidence processed."),
                         evidence_citations=valid_citations,
                         notes=groq_cat.get("notes"),
+                        is_verified=is_verified,
                     )
                 )
 
@@ -382,45 +364,49 @@ class ExtractionService:
 
         # 4. Strict Backend Citation & Claim Support Validation
         raw_status = groq_out["status"]
+        extracted_raw = groq_out.get("raw_value")
         valid_citations: List[EvidenceCitationModel] = []
+        is_verified = False
 
         if raw_status in {"FOUND", "UNCLEAR", "CONFLICTING"}:
             for cited_eid in groq_out.get("cited_evidence_ids", []):
                 if cited_eid in evidence_map:
                     item = evidence_map[cited_eid]
-                    valid_citations.append(
-                        EvidenceCitationModel(
-                            evidence_id=cited_eid,
-                            vendor_name=item.vendor_name,
-                            source_filename=item.source_filename,
-                            start_page=item.start_page,
-                            end_page=item.end_page,
-                            chunk_id=item.chunk_id,
-                            excerpt_text=item.text,
+                    if EvidenceValidator.validate_claim_topical_support(category_name, extracted_raw, item.text):
+                        valid_citations.append(
+                            EvidenceCitationModel(
+                                evidence_id=cited_eid,
+                                vendor_name=item.vendor_name,
+                                source_filename=item.source_filename,
+                                start_page=item.start_page,
+                                end_page=item.end_page,
+                                chunk_id=item.chunk_id,
+                                excerpt_text=item.text,
+                            )
                         )
-                    )
 
-            # If model claimed FOUND or CONFLICTING but backend rejected all citation IDs, fallback to NOT_FOUND safely
+            # If model claimed FOUND or CONFLICTING but backend rejected all citation IDs, mark UNVERIFIED
             if not valid_citations and raw_status == "FOUND":
-                raw_status = "NOT_FOUND"
-
-        extracted_raw = groq_out.get("raw_value")
-        # Grounding check: Verify extracted raw_value is grounded in the cited evidence
-        if raw_status == "FOUND" and extracted_raw and valid_citations:
-            nums = re.findall(r"\d+(?:\.\d+)?", extracted_raw)
-            citation_blob = " ".join(c.excerpt_text for c in valid_citations).lower()
-            if nums and not any(num in citation_blob for num in nums):
-                logger.warning("extraction.single_ungrounded_value_rejected: '%s' not found in cited evidence for '%s'", extracted_raw, category_name)
-                raw_status = "UNCLEAR"
+                logger.warning(
+                    "extraction.single_unverified_fact: Fact '%s' for category '%s' has no supporting evidence. Marking UNVERIFIED.",
+                    extracted_raw, category_name
+                )
+                raw_status = "UNVERIFIED"
+                is_verified = False
                 extracted_raw = None
+            elif raw_status == "FOUND":
+                is_verified = True
+            elif raw_status in {"UNCLEAR", "CONFLICTING"}:
+                is_verified = len(valid_citations) > 0
 
         return CategoryExtractionResult(
             category=category_name,
             status=raw_status,
             raw_value=extracted_raw if raw_status == "FOUND" else None,
-            summary=groq_out.get("summary") or "No details extracted.",
+            summary=groq_out.get("summary") or ("Unverified in proposal evidence." if raw_status == "UNVERIFIED" else "No details extracted."),
             evidence_citations=valid_citations,
             notes=groq_out.get("notes"),
+            is_verified=is_verified,
         )
 
     def _get_requirement_context(self, cat_name: str, reqs: ProcurementRequirements) -> Optional[str]:

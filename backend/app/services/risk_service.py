@@ -232,14 +232,20 @@ class RiskService:
                 if any(re.search(pat, text_lower) for pat in risk_def.suppression_patterns):
                     continue
 
-                # Check explicit rule match
-                rule_matched = any(re.search(pat, text_lower) for pat in risk_def.rule_patterns)
-
-                # Compute cosine similarity against category vector
+                # Compute cosine similarity against category vector to locate candidate passages
                 cat_emb = self.category_embeddings.get(cat_enum)
                 sim = 0.0
                 if cat_emb:
                     sim = self.embedder.cosine_similarity(chunk_emb, cat_emb)
+
+                # Similarity or rule match determines candidacy for evaluation
+                rule_matched = any(re.search(pat, text_lower) for pat in risk_def.rule_patterns)
+                if not (rule_matched or sim >= self.medium_threshold):
+                    continue
+
+                # Verification Step: Use similarity strictly to locate candidate passages.
+                # Verify whether the clause wording actually creates the affirmative risk.
+                creates_risk = self._verify_risk_in_clause(cat_enum, text)
 
                 citation = EvidenceCitationModel(
                     evidence_id=f"E{e_counter}",
@@ -251,9 +257,7 @@ class RiskService:
                     excerpt_text=r.text,
                 )
 
-                # Signal Confidence Calibration Policy:
-                # HIGH: Strong rule match OR high vector similarity (>= high_threshold)
-                if rule_matched or sim >= self.high_threshold:
+                if creates_risk:
                     sev = self._evaluate_risk_severity(cat_enum, text_lower)
                     r_id = f"rsk_{re.sub(r'[^a-zA-Z0-9]', '', vendor_name).lower()}_{cat_enum.value.lower()}_{len(findings)+1}"
 
@@ -274,8 +278,9 @@ class RiskService:
                     )
                     e_counter += 1
 
-                # MEDIUM: Similarity between medium_threshold and high_threshold -> Pack for selective Groq review
-                elif sim >= self.medium_threshold:
+                elif sim >= self.medium_threshold and not any(re.search(pat, text_lower) for pat in risk_def.suppression_patterns):
+                    # Candidate passage had topical similarity but affirmative risk was ambiguous:
+                    # pack for selective Groq review if Groq is available
                     medium_confidence_pack.append({
                         "evidence_id": f"E{e_counter}",
                         "category": cat_enum.value,
@@ -298,6 +303,112 @@ class RiskService:
                 logger.warning("Selective Groq risk review skipped/failed: %s", str(err))
 
         return findings
+
+    def _verify_risk_in_clause(self, category: RiskCategory, text: str) -> bool:
+        """Verify whether candidate text affirmatively creates the risk rather than merely sounding related."""
+        text_lower = text.lower()
+        risk_def = TAXONOMY_KNOWLEDGE_BASE.get(category)
+        if not risk_def:
+            return False
+
+        # 1. Broad Negation & Safe Harbor Protection Verification
+        if any(re.search(pat, text_lower) for pat in risk_def.suppression_patterns):
+            return False
+
+        # Generic safe-harbor and negation patterns
+        general_negations = [
+            r"\bwill\s+never\b",
+            r"\bshall\s+never\b",
+            r"\bunder\s+no\s+circumstances\b",
+            r"\bis\s+strictly\s+prohibited\b",
+            r"\bprohibited\s+from\b",
+            r"\bwill\s+not\s+(?:be\s+used|use|apply|escalate|renew|modify)\b",
+            r"\bshall\s+not\s+(?:be\s+used|use|apply|escalate|renew|modify)\b",
+            r"\bdoes\s+not\s+(?:use|apply|escalate|renew|modify)\b",
+            r"\bdo\s+not\s+(?:use|apply|escalate|renew|modify)\b",
+            r"\bno\s+right\s+to\b",
+            r"\bneither\s+party\s+shall\b",
+            r"\bwithout\s+(?:the\s+)?customer(?:'s)?\s+(?:prior\s+)?(?:written\s+)?(?:consent|approval)\b",
+            r"\bsolely\s+(?:to\s+provide|for\s+the\s+purpose\s+of\s+providing)\s+the\s+service\b",
+        ]
+        if any(re.search(pat, text_lower) for pat in general_negations):
+            return False
+
+        # 2. Affirmative Risk Language Verification
+        has_affirmative_rule = any(re.search(pat, text_lower) for pat in risk_def.rule_patterns)
+        if not has_affirmative_rule:
+            return False
+
+        # 3. Category-Specific Affirmative Grounding
+        if category == RiskCategory.DATA_USAGE:
+            affirmative_usage = any(
+                re.search(pat, text_lower)
+                for pat in [
+                    r"(?:may|reserves?\s+the\s+right\s+to|rights?\s+to)\s+(?:use|train|utilize)",
+                    r"(?:train|training)\s+(?:ai|machine\s+learning|models?)",
+                    r"customer\s+grants\s+.*(?:right|license)\s+to",
+                    r"aggregate\s+and\s+anonymize\s+data",
+                    r"use\s+customer\s+data\s+for\s+product\s+improvement",
+                ]
+            )
+            if not affirmative_usage:
+                return False
+
+        elif category == RiskCategory.AUTO_RENEWAL:
+            affirmative_renewal = any(
+                re.search(pat, text_lower)
+                for pat in [
+                    r"automatic(?:ally)?\s+renew",
+                    r"auto-renew",
+                    r"successive\s+(?:\d+-month|\d+-year|annual|monthly)\s+terms?",
+                    r"renew\s+unless\s+(?:cancelled|terminated)",
+                ]
+            )
+            if not affirmative_renewal:
+                return False
+
+        elif category == RiskCategory.PRICE_ESCALATION:
+            affirmative_escalation = any(
+                re.search(pat, text_lower)
+                for pat in [
+                    r"price\s+(?:increase|escalation|adjustment|uplift)",
+                    r"fee\s+(?:increase|escalation|adjustment)",
+                    r"increase\s+by\s+(?:up\s+to\s+)?\d+%",
+                    r"subject\s+to\s+annual\s+increase",
+                    r"cpi\s+(?:increase|adjustment)",
+                    r"sole\s+discretion\s+pricing",
+                ]
+            )
+            if not affirmative_escalation:
+                return False
+
+        elif category == RiskCategory.EARLY_TERMINATION_FEE:
+            affirmative_fee = any(
+                re.search(pat, text_lower)
+                for pat in [
+                    r"early\s+termination\s+(?:fee|penalty|charge)",
+                    r"remaining\s+fees\s+(?:shall|will)\s+become\s+(?:due|payable)",
+                    r"liquidated\s+damages\s+for\s+early\s+termination",
+                    r"buyout\s+fee",
+                ]
+            )
+            if not affirmative_fee:
+                return False
+
+        elif category == RiskCategory.UNCAPPED_LIABILITY:
+            affirmative_uncapped = any(
+                re.search(pat, text_lower)
+                for pat in [
+                    r"unlimited\s+liability",
+                    r"uncapped\s+liability",
+                    r"without\s+limitation\s+of\s+liability",
+                    r"no\s+cap\s+on\s+liability",
+                ]
+            )
+            if not affirmative_uncapped:
+                return False
+
+        return True
 
     def _evaluate_risk_severity(self, category: RiskCategory, clause_text: str) -> RiskSeverity:
         """Deterministically evaluate risk severity based on extracted terms and category policy."""

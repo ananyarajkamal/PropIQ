@@ -166,7 +166,7 @@ class ScoringService:
 
             if eval_res.status == "MEETS":
                 requirements_met_count += 1
-            elif eval_res.status in {"FAILS", "MISSING", "UNCLEAR", "CONFLICTING"}:
+            elif eval_res.status in {"FAILS", "MISSING", "UNCLEAR", "CONFLICTING", "NEEDS_REVIEW", "UNVERIFIED"}:
                 failed_requirement_ids.add(req_id)
                 if prio == RequirementPriority.MUST_HAVE:
                     must_have_failed_count += 1

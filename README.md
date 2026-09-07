@@ -271,7 +271,7 @@ npm run build
 
 ## Current Scope
 
-PropIQ is currently designed as a procurement intelligence MVP developed for evaluation and hackathon demonstration. It provides end-to-end proposal analysis, structured comparison, risk detection, deterministic scoring, vendor ranking, and executive decision briefs.
+PropIQ is designed as an enterprise procurement intelligence platform. It provides end-to-end proposal analysis, structured comparison, risk detection, deterministic scoring, vendor ranking, and executive decision briefs.
 
 ## Disclaimer
 

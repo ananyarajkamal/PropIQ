@@ -197,11 +197,12 @@ class CategoryExtractionResult(BaseModel):
     """Extraction result for a single procurement category or custom requirement."""
 
     category: str = Field(..., description="Category identifier or custom requirement name")
-    status: str = Field(..., description="Extraction status: FOUND, NOT_FOUND, UNCLEAR, or CONFLICTING")
+    status: str = Field(..., description="Extraction status: FOUND, NOT_FOUND, UNCLEAR, CONFLICTING, or UNVERIFIED")
     raw_value: Optional[str] = Field(default=None, description="Extracted raw vendor text value")
     summary: str = Field(..., description="Concise plain-language interpretation summary")
     evidence_citations: List[EvidenceCitationModel] = Field(default_factory=list, description="Backend-verified evidence citations")
     notes: Optional[str] = Field(default=None, description="Additional notes or ambiguity explanations")
+    is_verified: bool = Field(default=True, description="Flag indicating whether extracted fact is verified by grounded evidence")
 
 
 class VendorFactSheet(BaseModel):
@@ -253,7 +254,7 @@ class RequirementEvaluationResult(BaseModel):
     vendor_name: str = Field(..., description="Vendor name")
     status: str = Field(
         ...,
-        description="Controlled evaluation status: MEETS, PARTIAL, FAILS, MISSING, UNCLEAR, or CONFLICTING",
+        description="Controlled evaluation status: MEETS, PARTIAL, FAILS, MISSING, UNCLEAR, CONFLICTING, NEEDS_REVIEW, or UNVERIFIED",
     )
     raw_vendor_value: Optional[str] = Field(default=None, description="Original vendor raw wording")
     normalized_vendor_value: Optional[str] = Field(default=None, description="Formatted normalized vendor value")
@@ -262,6 +263,7 @@ class RequirementEvaluationResult(BaseModel):
     evidence_citations: List[EvidenceCitationModel] = Field(default_factory=list, description="Associated backend evidence citations")
     comparison_rule: str = Field(..., description="Deterministic rule comparison trace e.g. 'vendor_sla >= minimum_sla'")
     normalization_status: str = Field(default="NORMALIZED", description="Status of the value normalization step")
+    is_verified: bool = Field(default=True, description="Flag indicating whether evaluation is supported by verified evidence")
 
 
 class ComparisonMatrixRow(BaseModel):
